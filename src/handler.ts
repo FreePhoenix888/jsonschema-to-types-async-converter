@@ -180,8 +180,8 @@ async ({
 
   async function defaultPropertyConverter(param: PropertyConverterParam) {
     const log = getLogger('defaultPropertyConverter');
+    const { deep, jsonSchemaProperty, parentLinkId, logDepth } = param;
     log(util.inspect({ param }, { depth: logDepth }));
-    const { deep, jsonSchemaProperty, parentLinkId } = param;
     const serialOperations: Array<SerialOperation> = [];
     if (Array.isArray(type) ? type.includes('object') : type === 'object') {
       const { properties, title } = jsonSchema;
