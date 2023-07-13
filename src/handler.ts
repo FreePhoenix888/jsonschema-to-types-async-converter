@@ -39,7 +39,7 @@ async ({
     const util = require('util');
     const DEFAULT_LOG_DEPTH = 3;
     let logDepth = DEFAULT_LOG_DEPTH;
-    const config = await getConfig();
+    const config = await getConfig({logDepth});
     logDepth = config.logDepth;
     logs.push(util.inspect({ config }));
     const jsonSchema = await getJsonSchema({
