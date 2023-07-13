@@ -1,4 +1,4 @@
-import { DeepClient } from '@deep-foundation/deeplinks/imports/client';
+import { DeepClient, SerialOperation } from '@deep-foundation/deeplinks/imports/client';
 import { Exp } from '@deep-foundation/deeplinks/imports/client';
 import { Link as LinkWithTypedParameter } from '@deep-foundation/deeplinks/imports/minilinks';
 type Link = LinkWithTypedParameter<number>;
