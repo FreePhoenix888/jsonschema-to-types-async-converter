@@ -1,4 +1,7 @@
-import { DeepClient, SerialOperation } from '@deep-foundation/deeplinks/imports/client';
+import {
+  DeepClient,
+  SerialOperation,
+} from '@deep-foundation/deeplinks/imports/client';
 import { Exp } from '@deep-foundation/deeplinks/imports/client';
 import { Link as LinkWithTypedParameter } from '@deep-foundation/deeplinks/imports/minilinks';
 type Link = LinkWithTypedParameter<number>;
@@ -39,7 +42,7 @@ async ({
     const util = require('util');
     const DEFAULT_LOG_DEPTH = 3;
     let logDepth = DEFAULT_LOG_DEPTH;
-    const config = await getConfig({logDepth});
+    const config = await getConfig({ logDepth });
     logDepth = config.logDepth;
     logs.push(util.inspect({ config }));
     const jsonSchema = await getJsonSchema({
@@ -114,6 +117,7 @@ async ({
   }
 
   interface Config {
+   deep: DeepClient;
     converter: JsonSchemaConverter;
     logDepth: number;
     containerLinkId: number;
@@ -142,6 +146,8 @@ async ({
   interface PropertyConverterParam {
     parentLinkId: number;
     jsonSchemaProperty: object;
+    logDepth: number;
+    deep: DeepClient;
   }
 
   type PropertyConverter = (param: PropertyConverterParam) => Promise<void>;
@@ -172,73 +178,69 @@ async ({
     return defaultJsonSchemaConverter;
   }
 
-  async function getDefaultPropertyConverter(param: { logDepth: number }) {
-    const { logDepth } = param;
-    async function defaultPropertyConverter(param: PropertyConverterParam) {
-      const log = getLogger('defaultPropertyConverter');
-      log(util.inspect({ param }, { depth: logDepth }));
-      const { deep, jsonSchemaProperty, parentLinkId } = param;
-      const serialOperations: Array<SerialOperation> = [];
-      if (Array.isArray(type) ? type.includes('object') : type === 'object') {
-        const { properties, title } = jsonSchema;
-        if (!properties) {
-          return;
-        }
-        // * 3 because we reserve id for Type, Contain, Value
-        const reservedLinkIds = await deep.reserve((properties.length + 1) * 3);
-        const rootLinkId = reservedLinkIds.pop();
-        const containLinkId = reservedLinkIds.pop();
-        const typeTypeLinkId = await deep.id('@deep-foundation/core', 'Type');
-        const containTypeLinkId = await deep.id(
-          '@deep-foundation/core',
-          'Contain'
-        );
-        const rootTypeInsertSerialOperations = {
-          type: 'insert',
-          table: 'links',
-          objects: {
-            id: rootLinkId,
-            type_id: typeTypeLinkId,
-          },
-        };
-        serialOperations.push(rootTypeInsertSerialOperations);
-        const containInsertSerialOperation = {
-          type: 'insert',
-          table: 'links',
-          objects: {
-            type_id: containTypeLinkId,
-            from_id: containerLinkId,
-            to_id: rootLinkId,
-          },
-        };
-        serialOperations.push(containInsertSerialOperation);
-        const valueForContainInsertSerialOperation = {
-          type: 'insert',
-          table: 'strings',
-          objects: {
-            link_id: containLinkId,
-            value: title,
-          },
-        };
-        serialOperations.push(valueForContainInsertSerialOperation);
-        for (const [propertyName, property] of Object.entries(properties)) {
-          await propertyConverter({
-            rootLinkId,
-            jsonSchemaProperty,
-          });
-        }
-      } else if (
-        Array.isArray(type) ? type.includes('array') : type === 'array'
-      ) {
-      } else if (
-        Array.isArray(type) ? type.includes('string') : type === 'string'
-      ) {
-      } else if (
-        Array.isArray(type) ? type.includes('number') : type === 'number'
-      ) {
+  async function defaultPropertyConverter(param: PropertyConverterParam) {
+    const log = getLogger('defaultPropertyConverter');
+    log(util.inspect({ param }, { depth: logDepth }));
+    const { deep, jsonSchemaProperty, parentLinkId } = param;
+    const serialOperations: Array<SerialOperation> = [];
+    if (Array.isArray(type) ? type.includes('object') : type === 'object') {
+      const { properties, title } = jsonSchema;
+      if (!properties) {
+        return;
       }
+      // * 3 because we reserve id for Type, Contain, Value
+      const reservedLinkIds = await deep.reserve((properties.length + 1) * 3);
+      const rootLinkId = reservedLinkIds.pop();
+      const containLinkId = reservedLinkIds.pop();
+      const typeTypeLinkId = await deep.id('@deep-foundation/core', 'Type');
+      const containTypeLinkId = await deep.id(
+        '@deep-foundation/core',
+        'Contain'
+      );
+      const rootTypeInsertSerialOperations = {
+        type: 'insert',
+        table: 'links',
+        objects: {
+          id: rootLinkId,
+          type_id: typeTypeLinkId,
+        },
+      };
+      serialOperations.push(rootTypeInsertSerialOperations);
+      const containInsertSerialOperation = {
+        type: 'insert',
+        table: 'links',
+        objects: {
+          type_id: containTypeLinkId,
+          from_id: containerLinkId,
+          to_id: rootLinkId,
+        },
+      };
+      serialOperations.push(containInsertSerialOperation);
+      const valueForContainInsertSerialOperation = {
+        type: 'insert',
+        table: 'strings',
+        objects: {
+          link_id: containLinkId,
+          value: title,
+        },
+      };
+      serialOperations.push(valueForContainInsertSerialOperation);
+      for (const [propertyName, property] of Object.entries(properties)) {
+        await propertyConverter({
+          rootLinkId,
+          jsonSchemaProperty,
+        });
+      }
+    } else if (
+      Array.isArray(type) ? type.includes('array') : type === 'array'
+    ) {
+    } else if (
+      Array.isArray(type) ? type.includes('string') : type === 'string'
+    ) {
+    } else if (
+      Array.isArray(type) ? type.includes('number') : type === 'number'
+    ) {
     }
-    return defaultPropertyConverter;
   }
 
   interface GetLinkParam {
