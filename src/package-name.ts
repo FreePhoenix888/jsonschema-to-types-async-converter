@@ -1,0 +1,1 @@
+export const PACKAGE_NAME = "@freephoenix888/jsonschema-to-types-async-converter";
