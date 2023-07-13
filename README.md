@@ -1,4 +1,4 @@
-[![npm](https://img.shields.io/npm/v/@freephoenix888/jsonschema-to-types-async-converter.svg)](https://www.npmjs.com/package/<PACKAGE_NAME>) 
+[![npm](https://img.shields.io/npm/v/@freephoenix888/jsonschema-to-types-async-converter.svg)](https://www.npmjs.com/package/@freephoenix888/jsonschema-to-types-async-converter) 
 [![Gitpod](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/FreePhoenix888/jsonschema-to-types-async-converter) 
 [![Discord](https://badgen.net/badge/icon/discord?icon=discord&label&color=purple)](https://discord.gg/deep-foundation)
 
