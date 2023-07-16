@@ -216,7 +216,6 @@ async ({
     log(util.inspect({ param }, { depth: logDepth }));
     const serialOperations: Array<SerialOperation> = [];
 
-    // Draft
     if (typeof jsonSchema === 'boolean' || jsonSchema.properties) {
       const typeLinkId = reservedLinkIds.pop()!;
       const containForTypeLinkId = reservedLinkIds.pop()!;
