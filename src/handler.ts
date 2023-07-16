@@ -49,7 +49,9 @@ async ({
       logDepth,
     });
 
-    const linkIdsToBeReservedCount = await getLinkIdsToBeReservedCount({jsonSchema});
+    const linkIdsToBeReservedCount = await getLinkIdsToBeReservedCount({
+      jsonSchema,
+    });
     const reservedLinkIds = await deep.reserve(linkIdsToBeReservedCount);
   }
 
@@ -157,6 +159,8 @@ async ({
     objectTypeLinkId: number;
     stringTypeLinkId: number;
     numberTypeLinkId: number;
+    reservedLinkIds: Array<number>;
+    isRequired?: boolean;
   }
 
   type PropertyConverter = (param: PropertyConverterParam) => Promise<void>;
@@ -195,33 +199,17 @@ async ({
       logDepth,
       jsonSchema,
       containerLinkId,
-      name,
       valueTypeLinkId,
       numberTypeLinkId,
       objectTypeLinkId,
       stringTypeLinkId,
+      reservedLinkIds,
+      name,
+      isRequired,
     } = param;
     log(util.inspect({ param }, { depth: logDepth }));
     const serialOperations: Array<SerialOperation> = [];
 
-
-    if (typeof jsonSchema === 'boolean') {
-      count += 4;
-    } else if (jsonSchema.properties) {
-      for (const property in jsonSchema.properties) {
-        count += 4;
-        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.properties[property] });
-      }
-    } else if (jsonSchema.items) {
-      if (Array.isArray(jsonSchema.items)) {
-        jsonSchema.items.forEach((item) =>
-          count += getLinkIdsToBeReservedCount({ jsonSchema: item })
-        );
-      } else {
-        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.items });
-      }
-    }
-    
     // Draft
     if (typeof jsonSchema === 'boolean') {
       const reservedLinkIds = await deep.reserve(4);
@@ -288,15 +276,8 @@ async ({
         },
       });
       serialOperations.push(containForValueLinkInsertSerialOperation);
-    } else if (
-      Array.isArray(jsonSchema.type)
-        ? jsonSchema.type.includes('object')
-        : jsonSchema.type === 'object'
-    ) {
+    } else if (jsonSchema.properties) {
       const { properties, title } = jsonSchema;
-      if (!properties) {
-        return;
-      }
       // +1 for this type.* 3 because we reserve id for Type, Contain, Value.
       const reservedLinkIds = await deep.reserve(
         (Object.keys(properties).length + 1) * 4
@@ -342,25 +323,30 @@ async ({
       serialOperations.push(valueForContainInsertSerialOperation);
       for (const [propertyName, propertyValue] of Object.entries(properties)) {
         await defaultPropertyConverter({
-          containerLinkId,
-          deep,
+          ...param,
           jsonSchema: propertyValue,
-          logDepth,
           name: propertyName,
           parentLinkId: rootLinkId,
-          numberTypeLinkId,
-          objectTypeLinkId,
-          stringTypeLinkId,
-          valueTypeLinkId,
         });
       }
-    } else if (
-      Array.isArray(jsonSchema.type)
-        ? jsonSchema.type.includes('array')
-        : jsonSchema.type === 'array'
-    ) {
-      if (!jsonSchema.items) {
-        return;
+    } else if (jsonSchema.items) {
+      if (Array.isArray(jsonSchema.items)) {
+        const innerSerialOperations = await Promise.all(
+          jsonSchema.items.map(
+            async (item) =>
+              await defaultPropertyConverter({
+                ...param,
+                jsonSchema: item,
+              })
+          )
+        );
+        serialOperations.push(...innerSerialOperations.flat());
+      } else {
+        const innerSerialOperations = await defaultPropertyConverter({
+          ...param,
+          jsonSchema: jsonSchema.items,
+        });
+        serialOperations.push(...innerSerialOperations);
       }
     } else if (
       Array.isArray(jsonSchema.type)
@@ -373,6 +359,8 @@ async ({
         : jsonSchema.type === 'number'
     ) {
     }
+
+    return serialOperations;
   }
 
   interface GetLinkParam {
@@ -400,18 +388,29 @@ async ({
 
     if (typeof jsonSchema === 'boolean') {
       count += 4;
-    } else if (jsonSchema.properties) {
-      for (const property in jsonSchema.properties) {
-        count += 4;
-        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.properties[property] });
+    } else {
+      if (jsonSchema.properties) {
+        for (const property in jsonSchema.properties) {
+          count += 4;
+          count += getLinkIdsToBeReservedCount({
+            jsonSchema: jsonSchema.properties[property],
+          });
+        }
+      } else if (jsonSchema.items) {
+        if (Array.isArray(jsonSchema.items)) {
+          jsonSchema.items.forEach(
+            (item) =>
+              (count += getLinkIdsToBeReservedCount({ jsonSchema: item }))
+          );
+        } else {
+          count += getLinkIdsToBeReservedCount({
+            jsonSchema: jsonSchema.items,
+          });
+        }
       }
-    } else if (jsonSchema.items) {
-      if (Array.isArray(jsonSchema.items)) {
-        jsonSchema.items.forEach((item) =>
-          count += getLinkIdsToBeReservedCount({ jsonSchema: item })
-        );
-      } else {
-        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.items });
+
+      if(jsonSchema.required?.length) {
+        count += jsonSchema.required.length;
       }
     }
 
