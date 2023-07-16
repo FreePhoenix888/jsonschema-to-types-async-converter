@@ -50,7 +50,7 @@ async ({
     });
 
     const linkIdsToBeReservedCount = await getLinkIdsToBeReservedCount({jsonSchema});
-    
+    const reservedLinkIds = await deep.reserve(linkIdsToBeReservedCount);
   }
 
   function getLogger(namespace: string) {
