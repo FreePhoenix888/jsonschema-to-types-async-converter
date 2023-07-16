@@ -277,7 +277,7 @@ async ({
           to_id: requiredLinkId,
         },
       });
-      serialOperations.push(containInsertSerialOperation);
+      serialOperations.push(containForIsRequiredInsertSerialOperation);
       const valueForContainForIsRequiredInsertSerialOperation =
         createSerialOperation({
           type: 'insert',
