@@ -5,6 +5,8 @@ import {
 import { Exp } from '@deep-foundation/deeplinks/imports/client';
 import { Link as LinkWithTypedParameter } from '@deep-foundation/deeplinks/imports/minilinks';
 type Link = LinkWithTypedParameter<number>;
+import { JSONSchema7Definition, JSONSchema7 } from 'json-schema';
+import { types } from 'util';
 
 async ({
   deep,
@@ -14,15 +16,13 @@ async ({
   data: { newLink: Link };
 }) => {
   const logs: Array<string> = [];
-  const util = require('util');
-  const { JSONSchema7 } = require('json-schema');
-  const {
-    createSerialOperations,
-  } = require('@deep-foundation/deeplinks/imports/gql');
-  const {
-    DeepClient,
-    SerialOperation,
-  } = require('@deep-foundation/deeplinks/imports/client');
+  const util = await import('util');
+  const { createSerialOperation } = await import(
+    '@deep-foundation/deeplinks/imports/gql/index.js'
+  );
+  const { DeepClient } = await import(
+    '@deep-foundation/deeplinks/imports/client'
+  );
   const { Link } = require('@deep-foundation/deeplinks/imports/minilinks');
 
   try {
@@ -48,6 +48,9 @@ async ({
     const jsonSchema = await getJsonSchema({
       logDepth,
     });
+
+    const linkIdsToBeReservedCount = await getLinkIdsToBeReservedCount({jsonSchema});
+    
   }
 
   function getLogger(namespace: string) {
@@ -117,7 +120,7 @@ async ({
   }
 
   interface Config {
-   deep: DeepClient;
+    deep: DeepClient;
     converter: JsonSchemaConverter;
     logDepth: number;
     containerLinkId: number;
@@ -145,9 +148,15 @@ async ({
 
   interface PropertyConverterParam {
     parentLinkId: number;
-    jsonSchemaProperty: object;
     logDepth: number;
     deep: DeepClient;
+    jsonSchema: JSONSchema7Definition;
+    containerLinkId: number;
+    name: string;
+    valueTypeLinkId: number;
+    objectTypeLinkId: number;
+    stringTypeLinkId: number;
+    numberTypeLinkId: number;
   }
 
   type PropertyConverter = (param: PropertyConverterParam) => Promise<void>;
@@ -156,57 +165,89 @@ async ({
 
   interface JsonSchemaConverterParam {
     deep: object;
-    jsonSchema: JSONSchema7;
+    jsonSchema: JSONSchema7Definition;
     containerLinkId: number;
     propertyConverter: PropertyConverter;
   }
 
-  async function getDefaultJsonSchemaConverter(param: { logDepth: number }) {
-    const { logDepth } = param;
-    async function defaultJsonSchemaConverter(param: JsonSchemaConverterParam) {
-      const log = getLogger('defaultJsonSchemaConverter');
-      log(util.inspect({ param }, { depth: logDepth }));
-      const serialOperations: Array<object> = [];
-      const { deep, jsonSchema, containerLinkId, propertyConverter } = param;
-      const { type } = jsonSchema;
+  // async function getDefaultJsonSchemaConverter(param: { logDepth: number }) {
+  //   const { logDepth } = param;
+  //   async function defaultJsonSchemaConverter(param: JsonSchemaConverterParam) {
+  //     const log = getLogger('defaultJsonSchemaConverter');
+  //     log(util.inspect({ param }, { depth: logDepth }));
+  //     const serialOperations: Array<object> = [];
+  //     const { deep, jsonSchema, containerLinkId, propertyConverter } = param;
+  //     const { type } = jsonSchema;
 
-      propertyConverter({
-        jsonSchemaProperty,
-        parentLinkId: rootLinkId,
-      });
-    }
-    return defaultJsonSchemaConverter;
-  }
+  //     propertyConverter({
+  //       jsonSchemaProperty,
+  //       parentLinkId: rootLinkId,
+  //     });
+  //   }
+  //   return defaultJsonSchemaConverter;
+  // }
 
   async function defaultPropertyConverter(param: PropertyConverterParam) {
     const log = getLogger('defaultPropertyConverter');
-    const { deep, jsonSchemaProperty, parentLinkId, logDepth } = param;
+    const {
+      deep,
+      parentLinkId,
+      logDepth,
+      jsonSchema,
+      containerLinkId,
+      name,
+      valueTypeLinkId,
+      numberTypeLinkId,
+      objectTypeLinkId,
+      stringTypeLinkId,
+    } = param;
     log(util.inspect({ param }, { depth: logDepth }));
     const serialOperations: Array<SerialOperation> = [];
-    if (Array.isArray(type) ? type.includes('object') : type === 'object') {
-      const { properties, title } = jsonSchema;
-      if (!properties) {
-        return;
+
+
+    if (typeof jsonSchema === 'boolean') {
+      count += 4;
+    } else if (jsonSchema.properties) {
+      for (const property in jsonSchema.properties) {
+        count += 4;
+        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.properties[property] });
       }
-      // * 3 because we reserve id for Type, Contain, Value
-      const reservedLinkIds = await deep.reserve((properties.length + 1) * 3);
-      const rootLinkId = reservedLinkIds.pop();
-      const containLinkId = reservedLinkIds.pop();
+    } else if (jsonSchema.items) {
+      if (Array.isArray(jsonSchema.items)) {
+        jsonSchema.items.forEach((item) =>
+          count += getLinkIdsToBeReservedCount({ jsonSchema: item })
+        );
+      } else {
+        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.items });
+      }
+    }
+    
+    // Draft
+    if (typeof jsonSchema === 'boolean') {
+      const reservedLinkIds = await deep.reserve(4);
+      const rootLinkId = reservedLinkIds.pop()!;
+      const containLinkId = reservedLinkIds.pop()!;
+      const valueLinkId = reservedLinkIds.pop()!;
+      const containForValueLinkId = reservedLinkIds.pop()!;
       const typeTypeLinkId = await deep.id('@deep-foundation/core', 'Type');
       const containTypeLinkId = await deep.id(
         '@deep-foundation/core',
         'Contain'
       );
-      const rootTypeInsertSerialOperations = {
+      const rootTypeInsertSerialOperations = createSerialOperation({
         type: 'insert',
         table: 'links',
         objects: {
           id: rootLinkId,
           type_id: typeTypeLinkId,
+          ...(parentLinkId && {
+            from_id: parentLinkId,
+            to_id: parentLinkId,
+          }),
         },
-      };
+      });
       serialOperations.push(rootTypeInsertSerialOperations);
-      const containInsertSerialOperation = {
+      const containInsertSerialOperation = createSerialOperation({
         type: 'insert',
         table: 'links',
         objects: {
@@ -214,31 +255,122 @@ async ({
           from_id: containerLinkId,
           to_id: rootLinkId,
         },
-      };
+      });
       serialOperations.push(containInsertSerialOperation);
-      const valueForContainInsertSerialOperation = {
+      const valueForContainInsertSerialOperation = createSerialOperation({
+        type: 'insert',
+        table: 'strings',
+        objects: {
+          link_id: containLinkId,
+          value: name,
+        },
+      });
+      serialOperations.push(valueForContainInsertSerialOperation);
+      const valueLinkInsertSerialOperation = createSerialOperation({
+        type: 'insert',
+        table: 'links',
+        objects: {
+          id: valueLinkId,
+          type_id: valueTypeLinkId,
+          from_id: rootLinkId,
+          to_id: objectTypeLinkId,
+        },
+      });
+      serialOperations.push(valueLinkInsertSerialOperation);
+      const containForValueLinkInsertSerialOperation = createSerialOperation({
+        type: 'insert',
+        table: 'links',
+        objects: {
+          id: containForValueLinkId,
+          type_id: containTypeLinkId,
+          from_id: containerLinkId,
+          to_id: valueLinkId,
+        },
+      });
+      serialOperations.push(containForValueLinkInsertSerialOperation);
+    } else if (
+      Array.isArray(jsonSchema.type)
+        ? jsonSchema.type.includes('object')
+        : jsonSchema.type === 'object'
+    ) {
+      const { properties, title } = jsonSchema;
+      if (!properties) {
+        return;
+      }
+      // +1 for this type.* 3 because we reserve id for Type, Contain, Value.
+      const reservedLinkIds = await deep.reserve(
+        (Object.keys(properties).length + 1) * 4
+      );
+      const rootLinkId = reservedLinkIds.pop()!;
+      const containLinkId = reservedLinkIds.pop()!;
+      const typeTypeLinkId = await deep.id('@deep-foundation/core', 'Type');
+      const containTypeLinkId = await deep.id(
+        '@deep-foundation/core',
+        'Contain'
+      );
+      const rootTypeInsertSerialOperations = createSerialOperation({
+        type: 'insert',
+        table: 'links',
+        objects: {
+          id: rootLinkId,
+          type_id: typeTypeLinkId,
+          ...(parentLinkId && {
+            from_id: parentLinkId,
+            to_id: parentLinkId,
+          }),
+        },
+      });
+      serialOperations.push(rootTypeInsertSerialOperations);
+      const containInsertSerialOperation = createSerialOperation({
+        type: 'insert',
+        table: 'links',
+        objects: {
+          type_id: containTypeLinkId,
+          from_id: containerLinkId,
+          to_id: rootLinkId,
+        },
+      });
+      serialOperations.push(containInsertSerialOperation);
+      const valueForContainInsertSerialOperation = createSerialOperation({
         type: 'insert',
         table: 'strings',
         objects: {
           link_id: containLinkId,
           value: title,
         },
-      };
+      });
       serialOperations.push(valueForContainInsertSerialOperation);
-      for (const [propertyName, property] of Object.entries(properties)) {
-        await propertyConverter({
-          rootLinkId,
-          jsonSchemaProperty,
+      for (const [propertyName, propertyValue] of Object.entries(properties)) {
+        await defaultPropertyConverter({
+          containerLinkId,
+          deep,
+          jsonSchema: propertyValue,
+          logDepth,
+          name: propertyName,
+          parentLinkId: rootLinkId,
+          numberTypeLinkId,
+          objectTypeLinkId,
+          stringTypeLinkId,
+          valueTypeLinkId,
         });
       }
     } else if (
-      Array.isArray(type) ? type.includes('array') : type === 'array'
+      Array.isArray(jsonSchema.type)
+        ? jsonSchema.type.includes('array')
+        : jsonSchema.type === 'array'
+    ) {
+      if (!jsonSchema.items) {
+        return;
+      }
+    } else if (
+      Array.isArray(jsonSchema.type)
+        ? jsonSchema.type.includes('string')
+        : jsonSchema.type === 'string'
     ) {
     } else if (
-      Array.isArray(type) ? type.includes('string') : type === 'string'
-    ) {
-    } else if (
-      Array.isArray(type) ? type.includes('number') : type === 'number'
+      Array.isArray(jsonSchema.type)
+        ? jsonSchema.type.includes('number')
+        : jsonSchema.type === 'number'
     ) {
     }
   }
@@ -257,5 +389,32 @@ async ({
       await onError();
     }
     return linkConfig;
+  }
+
+  function getLinkIdsToBeReservedCount({
+    jsonSchema,
+  }: {
+    jsonSchema: JSONSchema7Definition;
+  }): number {
+    let count = 0;
+
+    if (typeof jsonSchema === 'boolean') {
+      count += 4;
+    } else if (jsonSchema.properties) {
+      for (const property in jsonSchema.properties) {
+        count += 4;
+        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.properties[property] });
+      }
+    } else if (jsonSchema.items) {
+      if (Array.isArray(jsonSchema.items)) {
+        jsonSchema.items.forEach((item) =>
+          count += getLinkIdsToBeReservedCount({ jsonSchema: item })
+        );
+      } else {
+        count += getLinkIdsToBeReservedCount({ jsonSchema: jsonSchema.items });
+      }
+    }
+
+    return count;
   }
 };
