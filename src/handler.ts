@@ -159,6 +159,9 @@ async ({
     objectTypeLinkId: number;
     stringTypeLinkId: number;
     numberTypeLinkId: number;
+    typeTypeLinkId: number;
+    containTypeLinkId: number;
+    requiredTypeLinkId: number;
     reservedLinkIds: Array<number>;
     isRequired?: boolean;
   }
@@ -203,6 +206,9 @@ async ({
       numberTypeLinkId,
       objectTypeLinkId,
       stringTypeLinkId,
+      typeTypeLinkId,
+      containTypeLinkId,
+      requiredTypeLinkId,
       reservedLinkIds,
       name,
       isRequired,
@@ -211,22 +217,16 @@ async ({
     const serialOperations: Array<SerialOperation> = [];
 
     // Draft
-    if (typeof jsonSchema === 'boolean') {
-      const reservedLinkIds = await deep.reserve(4);
-      const rootLinkId = reservedLinkIds.pop()!;
-      const containLinkId = reservedLinkIds.pop()!;
-      const valueLinkId = reservedLinkIds.pop()!;
-      const containForValueLinkId = reservedLinkIds.pop()!;
-      const typeTypeLinkId = await deep.id('@deep-foundation/core', 'Type');
-      const containTypeLinkId = await deep.id(
-        '@deep-foundation/core',
-        'Contain'
-      );
-      const rootTypeInsertSerialOperations = createSerialOperation({
+    if (typeof jsonSchema === 'boolean' || jsonSchema.properties) {
+      const typeLinkId = reservedLinkIds.pop()!;
+      const containForTypeLinkId = reservedLinkIds.pop()!;
+      const requiredLinkId = reservedLinkIds.pop()!;
+      const containForRequiredLinkId = reservedLinkIds.pop()!;
+      const typeInsertSerialOperations = createSerialOperation({
         type: 'insert',
         table: 'links',
         objects: {
-          id: rootLinkId,
+          id: typeLinkId,
           type_id: typeTypeLinkId,
           ...(parentLinkId && {
             from_id: parentLinkId,
@@ -234,14 +234,15 @@ async ({
           }),
         },
       });
-      serialOperations.push(rootTypeInsertSerialOperations);
+      serialOperations.push(typeInsertSerialOperations);
       const containInsertSerialOperation = createSerialOperation({
         type: 'insert',
         table: 'links',
         objects: {
+          id: containForTypeLinkId,
           type_id: containTypeLinkId,
           from_id: containerLinkId,
-          to_id: rootLinkId,
+          to_id: typeLinkId,
         },
       });
       serialOperations.push(containInsertSerialOperation);
@@ -249,98 +250,135 @@ async ({
         type: 'insert',
         table: 'strings',
         objects: {
-          link_id: containLinkId,
+          link_id: containForTypeLinkId,
           value: name,
         },
       });
       serialOperations.push(valueForContainInsertSerialOperation);
-      const valueLinkInsertSerialOperation = createSerialOperation({
+
+      const isRequiredInsertSerialOperations = createSerialOperation({
         type: 'insert',
         table: 'links',
         objects: {
-          id: valueLinkId,
-          type_id: valueTypeLinkId,
-          from_id: rootLinkId,
-          to_id: objectTypeLinkId,
+          id: requiredLinkId,
+          type_id: requiredTypeLinkId,
+          from_id: parentLinkId,
+          to_id: parentLinkId,
         },
       });
-      serialOperations.push(valueLinkInsertSerialOperation);
-      const containForValueLinkInsertSerialOperation = createSerialOperation({
+      serialOperations.push(isRequiredInsertSerialOperations);
+      const containForIsRequiredInsertSerialOperation = createSerialOperation({
         type: 'insert',
         table: 'links',
         objects: {
-          id: containForValueLinkId,
+          id: containForRequiredLinkId,
           type_id: containTypeLinkId,
           from_id: containerLinkId,
-          to_id: valueLinkId,
-        },
-      });
-      serialOperations.push(containForValueLinkInsertSerialOperation);
-    } else if (jsonSchema.properties) {
-      const { properties, title } = jsonSchema;
-      // +1 for this type.* 3 because we reserve id for Type, Contain, Value.
-      const reservedLinkIds = await deep.reserve(
-        (Object.keys(properties).length + 1) * 4
-      );
-      const rootLinkId = reservedLinkIds.pop()!;
-      const containLinkId = reservedLinkIds.pop()!;
-      const typeTypeLinkId = await deep.id('@deep-foundation/core', 'Type');
-      const containTypeLinkId = await deep.id(
-        '@deep-foundation/core',
-        'Contain'
-      );
-      const rootTypeInsertSerialOperations = createSerialOperation({
-        type: 'insert',
-        table: 'links',
-        objects: {
-          id: rootLinkId,
-          type_id: typeTypeLinkId,
-          ...(parentLinkId && {
-            from_id: parentLinkId,
-            to_id: parentLinkId,
-          }),
-        },
-      });
-      serialOperations.push(rootTypeInsertSerialOperations);
-      const containInsertSerialOperation = createSerialOperation({
-        type: 'insert',
-        table: 'links',
-        objects: {
-          type_id: containTypeLinkId,
-          from_id: containerLinkId,
-          to_id: rootLinkId,
+          to_id: requiredLinkId,
         },
       });
       serialOperations.push(containInsertSerialOperation);
-      const valueForContainInsertSerialOperation = createSerialOperation({
-        type: 'insert',
-        table: 'strings',
-        objects: {
-          link_id: containLinkId,
-          value: title,
-        },
-      });
-      serialOperations.push(valueForContainInsertSerialOperation);
-      for (const [propertyName, propertyValue] of Object.entries(properties)) {
-        await defaultPropertyConverter({
-          ...param,
-          jsonSchema: propertyValue,
-          name: propertyName,
-          parentLinkId: rootLinkId,
+      const valueForContainForIsRequiredInsertSerialOperation =
+        createSerialOperation({
+          type: 'insert',
+          table: 'strings',
+          objects: {
+            link_id: containForTypeLinkId,
+            value: `${name}Required`,
+          },
         });
+      serialOperations.push(valueForContainForIsRequiredInsertSerialOperation);
+
+      if (typeof jsonSchema !== 'boolean' && jsonSchema.properties) {
+        for (const [propertyName, propertyValue] of Object.entries(
+          jsonSchema.properties
+        )) {
+          await defaultPropertyConverter({
+            ...param,
+            jsonSchema: propertyValue,
+            name: propertyName,
+            parentLinkId: typeLinkId,
+          });
+        }
       }
     } else if (jsonSchema.items) {
       if (Array.isArray(jsonSchema.items)) {
-        const innerSerialOperations = await Promise.all(
-          jsonSchema.items.map(
-            async (item) =>
-              await defaultPropertyConverter({
-                ...param,
-                jsonSchema: item,
-              })
-          )
-        );
-        serialOperations.push(...innerSerialOperations.flat());
+        const typeInsertSerialOperations = createSerialOperation({
+          type: 'insert',
+          table: 'links',
+          objects: {
+            id: rootLinkId,
+            type_id: typeTypeLinkId,
+            ...(parentLinkId && {
+              from_id: parentLinkId,
+              to_id: parentLinkId,
+            }),
+          },
+        });
+        serialOperations.push(typeInsertSerialOperations);
+        const containInsertSerialOperation = createSerialOperation({
+          type: 'insert',
+          table: 'links',
+          objects: {
+            id: containForTypeLinkId,
+            type_id: containTypeLinkId,
+            from_id: containerLinkId,
+            to_id: rootLinkId,
+          },
+        });
+        serialOperations.push(containInsertSerialOperation);
+        const valueForContainInsertSerialOperation = createSerialOperation({
+          type: 'insert',
+          table: 'strings',
+          objects: {
+            link_id: containForTypeLinkId,
+            value: title,
+          },
+        });
+        serialOperations.push(valueForContainInsertSerialOperation);
+        if (isRequired) {
+          const rootTypeInsertSerialOperations = createSerialOperation({
+            type: 'insert',
+            table: 'links',
+            objects: {
+              id: requiredLinkId,
+              type_id: requiredTypeLinkId,
+              from_id: parentLinkId,
+              to_id: parentLinkId,
+            },
+          });
+          serialOperations.push(rootTypeInsertSerialOperations);
+          const containInsertSerialOperation = createSerialOperation({
+            type: 'insert',
+            table: 'links',
+            objects: {
+              id: containForRequiredLinkId,
+              type_id: containTypeLinkId,
+              from_id: containerLinkId,
+              to_id: requiredLinkId,
+            },
+          });
+          serialOperations.push(containInsertSerialOperation);
+          const valueForContainInsertSerialOperation = createSerialOperation({
+            type: 'insert',
+            table: 'strings',
+            objects: {
+              link_id: containForTypeLinkId,
+              value: title,
+            },
+          });
+          serialOperations.push(valueForContainInsertSerialOperation);
+        }
+        // const innerSerialOperations = await Promise.all(
+        //   jsonSchema.items.map(
+        //     async (item) =>
+        //       await defaultPropertyConverter({
+        //         ...param,
+        //         jsonSchema: item,
+        //       })
+        //   )
+        // );
+        // serialOperations.push(...innerSerialOperations.flat());
       } else {
         const innerSerialOperations = await defaultPropertyConverter({
           ...param,
@@ -409,8 +447,8 @@ async ({
         }
       }
 
-      if(jsonSchema.required?.length) {
-        count += jsonSchema.required.length;
+      if (jsonSchema.required?.length) {
+        count += jsonSchema.required.length * 2;
       }
     }
 
